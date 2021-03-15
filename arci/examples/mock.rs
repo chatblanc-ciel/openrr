@@ -1,5 +1,8 @@
 use arci::*;
-use futures::stream::{FuturesUnordered, TryStreamExt};
+use futures::{
+    future::FutureExt,
+    stream::{FuturesUnordered, StreamExt},
+};
 use indexmap::IndexMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -166,39 +169,52 @@ async fn main() {
     let robot_client = RobotClient::new(speakers, joint_trajectory_clients);
 
     let s1 = robot_client.speakers["s1"].clone();
-    handles.push(tokio::task::spawn_blocking(move || {
-        // 1/2/3
-        s1.speak("msg");
-        // 6
-    }));
+    handles.push(
+        async move {
+            tokio::task::spawn_blocking(move || {
+                // 1/2/3
+                s1.speak("msg");
+                // 6
+            })
+            .await
+            .unwrap()
+        }
+        .boxed(),
+    );
 
     let c1 = robot_client.joint_trajectory_clients["c1"].clone();
     let c2 = robot_client.joint_trajectory_clients["c2"].clone();
-    handles.push(tokio::spawn(async move {
-        // 1/2/3
-        c1.send_joint_positions(vec![1.0, -10.0], Duration::from_millis(100))
-            .await
-            .unwrap();
-        // 4
-        c1.send_joint_positions(vec![3.0, -10.0], Duration::from_millis(300))
-            .await
-            .unwrap();
-        // 7
-    }));
-    handles.push(tokio::spawn(async move {
-        // 1/2/3
-        c2.send_joint_positions(vec![2.0, -10.0], Duration::from_millis(200))
-            .await
-            .unwrap();
-        // 5
-        c2.send_joint_positions(vec![4.0, -10.0], Duration::from_millis(400))
-            .await
-            .unwrap();
-        // 8
-    }));
+    handles.push(
+        async move {
+            // 1/2/3
+            c1.send_joint_positions(vec![1.0, -10.0], Duration::from_millis(100))
+                .await
+                .unwrap();
+            // 4
+            c1.send_joint_positions(vec![3.0, -10.0], Duration::from_millis(300))
+                .await
+                .unwrap();
+            // 7
+        }
+        .boxed(),
+    );
+    handles.push(
+        async move {
+            // 1/2/3
+            c2.send_joint_positions(vec![2.0, -10.0], Duration::from_millis(200))
+                .await
+                .unwrap();
+            // 5
+            c2.send_joint_positions(vec![4.0, -10.0], Duration::from_millis(400))
+                .await
+                .unwrap();
+            // 8
+        }
+        .boxed(),
+    );
 
     // 0
-    while handles.try_next().await.unwrap().is_some() {}
+    while handles.next().await.is_some() {}
 
     let result = &*robot_client.commands.lock().unwrap();
     dbg!(result);
